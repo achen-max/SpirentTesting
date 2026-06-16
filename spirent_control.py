@@ -169,7 +169,6 @@ with open(CSV_METRICS, mode='w', newline='') as f:
             
             # --- VERBOSE STATE EVALUATIONS ---
             fail_reason = None
-            status_override = None
 
             if not p1_online or not p2_online:
                 fail_reason = "DISCONNECTED"
@@ -183,28 +182,16 @@ with open(CSV_METRICS, mode='w', newline='') as f:
                 fail_reason = "HIGH JITTER (VIBRATION CHATTER)"
             elif p1_prbs_iter > THRESH_PRBS_ERRORS or p2_prbs_iter > THRESH_PRBS_ERRORS:
                 fail_reason = "PRBS BIT ERRORS (CONTACT NOISE)"
-            
-            # --- NEW BURSTING LOGIC ---
-            elif (p1_tx == 0 and p1_rx == 0) and (p2_tx == 0 and p2_rx == 0):
-                # Traffic is actively in its configured pause gap
-                status_override = "NOT SENDING (PASS)"
-            elif (p1_tx > 0 and p1_rx == 0) or (p2_tx > 0 and p2_rx == 0):
-                # We are transmitting, but the other side is dead
-                fail_reason = "TRAFFIC STALLED / BLACKHOLED"
-                
-            # Because you are bursting and pausing, a 1-second polling window will 
-            # calculate an *average* bit rate far below 1 Gb/s, causing false failures.
-            # Hardware configuration guarantees the 1 Gb/s line rate during the burst itself.
+            elif p1_tx < THRESH_SPEED_BPS or p2_tx < THRESH_SPEED_BPS or p1_rx < THRESH_SPEED_BPS or p2_rx < THRESH_SPEED_BPS:
+                fail_reason = "SPEED DROP (BELOW THRESHOLD)"
 
             if fail_reason:
                 status = f"FAIL ({fail_reason})" if VERBOSE else "FAIL"
                 if not pending_failure_triggers or (iteration - pending_failure_triggers[-1] > 4):
                     pending_failure_triggers.append(iteration)
-            elif status_override:
-                status = status_override
             else:
                 status = "PASS"
-                
+                                
             timestamp = time.strftime('%H:%M:%S')
             
             p1_lat_str = f"{p1_max_lat/1000:.1f}us" if p1_rx > 0 else "N/A"
