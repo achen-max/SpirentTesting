@@ -198,8 +198,12 @@ with open(CSV_METRICS, mode='w', newline='') as f:
             p1_lat_str = f"{p1_max_lat/1000:.1f}us" if p1_rx > 0 else "N/A"
             p2_lat_str = f"{p2_max_lat/1000:.1f}us" if p2_rx > 0 else "N/A"
             
-            print(f"Iter {iteration} | P1 [Tx: {p1_tx//1000000}M, Rx: {p1_rx//1000000}M, Drops: {p1_drops_iter}, FCS: {p1_fcs_iter}, Lat: {p1_lat_str}, PRBS: {p1_prbs_iter}] | P2 [Tx: {p2_tx//1000000}M, Rx: {p2_rx//1000000}M, Drops: {p2_drops_iter}, FCS: {p2_fcs_iter}, Lat: {p2_lat_str}, PRBS: {p2_prbs_iter}] | [{status}]")
-            
+            # Print Multi-line Tree using standard print
+            print(f"[Iter {iteration}] === {status} ===")
+            print(f"  ├─ P1: Tx {p1_tx//1000000:>3}M | Rx {p1_rx//1000000:>3}M | Drp: {p1_drops_iter:<2} | FCS: {p1_fcs_iter:<2} | Lat: {p1_lat_str:>7} | PRBS: {p1_prbs_iter}")
+            print(f"  └─ P2: Tx {p2_tx//1000000:>3}M | Rx {p2_rx//1000000:>3}M | Drp: {p2_drops_iter:<2} | FCS: {p2_fcs_iter:<2} | Lat: {p2_lat_str:>7} | PRBS: {p2_prbs_iter}")
+            print("") # Blank line for readability
+
             history_row = {
                 "Iteration": iteration, "Timestamp": timestamp,
                 "P1_Tx_Mbps": p1_tx//1000000, "P1_Rx_Mbps": p1_rx//1000000, "P1_Drops_Iter": p1_drops_iter, "P1_FCS_Iter": p1_fcs_iter, "P1_MaxLat_us": p1_max_lat/1000 if p1_rx > 0 else "N/A", "P1_Jitter_us": p1_jitter/1000 if p1_rx > 0 else "N/A", "P1_PRBS_Iter": p1_prbs_iter,
@@ -241,4 +245,7 @@ with open(CSV_METRICS, mode='w', newline='') as f:
     finally:
         stc.perform("GeneratorStopCommand", generatorList=generators)
         stc.perform("AnalyzerStopCommand", analyzerList=analyzers)
+        print("Releasing Ports and Disconnecting...")
+        stc.release([PORT1_LOC, PORT2_LOC])
+        stc.disconnect(CHASSIS_IP)
         print("Test Complete.")
