@@ -8,7 +8,7 @@ CHASSIS_IP = "192.168.0.100" # IP address of Spirent machine
 PORT1_LOC = f"//{CHASSIS_IP}/1/1" # to/from ports that we are using
 PORT2_LOC = f"//{CHASSIS_IP}/1/2" 
 
-TCC_FILE = "slipring_test.tcc" # which Spirent test to set up (.tcc)
+TCC_FILE = "tcc_configs/slipring_burst150k.tcc" # which Spirent test to set up (.tcc)
 CSV_METRICS = "slipring_metrics.csv" # record all metrics to
 CSV_FAILURES = "slipring_failures.csv" # record all failures (and three surrounding scenarios) to
 CSV_CONFIG = "slipring_config.csv" # traffic type
@@ -169,16 +169,14 @@ with open(CSV_METRICS, mode='w', newline='') as f:
             
             # --- VERBOSE STATE EVALUATIONS ---
             fail_reason = None
+            status_override = None
+
             if not p1_online or not p2_online:
                 fail_reason = "DISCONNECTED"
-            elif (p1_tx == 0 and p1_rx == 0) or (p2_tx == 0 and p2_rx == 0):
-                fail_reason = "RAMPING UP / TRAFFIC STALLED" 
             elif p1_fcs_iter > 0 or p2_fcs_iter > 0:
                 fail_reason = "FCS ERRORS"
             elif p1_drops_iter > 0 or p2_drops_iter > 0:
-                fail_reason = "OUT OF SEQUENCE"
-            elif p1_rx < THRESH_SPEED_BPS or p2_rx < THRESH_SPEED_BPS:
-                fail_reason = "SPEED DEGRADED"
+                fail_reason = "OUT OF SEQUENCE (PACKET DROP)"
             elif p1_max_lat > THRESH_MAX_LATENCY_NS or p2_max_lat > THRESH_MAX_LATENCY_NS:
                 fail_reason = "HIGH LATENCY (BRUSH BOUNCE)"
             elif p1_jitter > THRESH_JITTER_NS or p2_jitter > THRESH_JITTER_NS:
@@ -186,10 +184,24 @@ with open(CSV_METRICS, mode='w', newline='') as f:
             elif p1_prbs_iter > THRESH_PRBS_ERRORS or p2_prbs_iter > THRESH_PRBS_ERRORS:
                 fail_reason = "PRBS BIT ERRORS (CONTACT NOISE)"
             
+            # --- NEW BURSTING LOGIC ---
+            elif (p1_tx == 0 and p1_rx == 0) and (p2_tx == 0 and p2_rx == 0):
+                # Traffic is actively in its configured pause gap
+                status_override = "NOT SENDING (PASS)"
+            elif (p1_tx > 0 and p1_rx == 0) or (p2_tx > 0 and p2_rx == 0):
+                # We are transmitting, but the other side is dead
+                fail_reason = "TRAFFIC STALLED / BLACKHOLED"
+                
+            # Because you are bursting and pausing, a 1-second polling window will 
+            # calculate an *average* bit rate far below 1 Gb/s, causing false failures.
+            # Hardware configuration guarantees the 1 Gb/s line rate during the burst itself.
+
             if fail_reason:
                 status = f"FAIL ({fail_reason})" if VERBOSE else "FAIL"
                 if not pending_failure_triggers or (iteration - pending_failure_triggers[-1] > 4):
                     pending_failure_triggers.append(iteration)
+            elif status_override:
+                status = status_override
             else:
                 status = "PASS"
                 
