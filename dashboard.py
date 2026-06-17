@@ -14,12 +14,6 @@ st.sidebar.markdown("---")
 st.sidebar.title("🚦 Live Traffic Stats")
 traffic_placeholder = st.sidebar.empty()
 
-if os.path.exists("slipring_config.csv"):
-    try:
-        df_cfg = pd.read_csv("slipring_config.csv")
-        config_placeholder.dataframe(df_cfg.set_index("Parameter"), use_container_width=True)
-    except Exception:
-        pass
 # -----------------------------
 
 # --- TOP LIVE METRICS ---
@@ -60,6 +54,14 @@ log_placeholder = st.empty()
 # --- BACKGROUND TELEMETRY LOOP ---
 while True:
     try:
+        # --- 0. Update Traffic Configuration ---
+        if os.path.exists("slipring_config.csv"):
+            try:
+                df_cfg = pd.read_csv("slipring_config.csv")
+                config_placeholder.dataframe(df_cfg.set_index("Parameter"), use_container_width=True)
+            except Exception:
+                pass # Ignore if file is currently being locked/written by the test script
+
         # Read the latest telemetry entry
         df = pd.read_csv("slipring_metrics.csv")
         latest = df.iloc[-1]
@@ -127,16 +129,29 @@ while True:
         error_chart_placeholder.bar_chart(chart_df[error_cols])
         
         # 4. Compile Recent Failure Audit Log
-        fail_cols = ['Iteration', 'Timestamp', 'Status', 'P1_Drops_Iteration', 'P1_FCS_Iteration', 'P1_PRBS_Iteration', 'P2_Drops_Iteration', 'P2_FCS_Iteration', 'P2_PRBS_Iteration']
-        # Guard in case Timestamp doesn't exist
-        actual_cols = [c for c in fail_cols if c in df.columns] 
-        
-        fail_df = df[df['Status'] != 'PASS'].tail(10)[actual_cols]
-        
-        if not fail_df.empty:
-            log_placeholder.dataframe(fail_df.reset_index(drop=True), use_container_width=True)
-        else:
+        try:
+            # Read directly from our new, streamlined failures log
+            fail_df = pd.read_csv("slipring_failures.csv")
+            
+            if not fail_df.empty:
+                # Grab the last 10 failures and reset the index for a clean table
+                recent_fails = fail_df.tail(10).reset_index(drop=True)
+                
+                # Highlight the 'Reason' column if it exists to make errors pop
+                if 'Reason' in recent_fails.columns:
+                    log_placeholder.dataframe(
+                        recent_fails.style.map(lambda x: 'background-color: #ff4b4b; color: white' if pd.notna(x) else '', subset=['Reason']),
+                        use_container_width=True
+                    )
+                else:
+                    log_placeholder.dataframe(recent_fails, use_container_width=True)
+            else:
+                log_placeholder.info("All parameters nominal. Copper brush contact interface is completely stable! ✨")
+                
+        except FileNotFoundError:
+            # The script doesn't create slipring_failures.csv until the first error
             log_placeholder.info("All parameters nominal. Copper brush contact interface is completely stable! ✨")
+            
             
     except FileNotFoundError:
         st.info("Awaiting file cache pipeline sync...")
