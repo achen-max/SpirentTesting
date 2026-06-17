@@ -1,7 +1,11 @@
 Parameter,Value
 Stream 'StreamBlock 3-7' Size,1518 Bytes
 Stream 'StreamBlock 3-8' Size,1518 Bytes
-Port 1 Burst Count,150000
-Port 1 Burst Size,50000 Frames
-Port 2 Burst Count,10
-Port 2 Burst Size,50000 Frames
+Port 1 Duration Mode,CONTINUOUS
+Port 1 Load,100 PERCENT_LINE_RATE
+Port 1 Duration,N/A
+Port 1 Frame Count (Burst Size),50000
+Port 2 Duration Mode,CONTINUOUS
+Port 2 Load,100 PERCENT_LINE_RATE
+Port 2 Duration,N/A
+Port 2 Frame Count (Burst Size),50000

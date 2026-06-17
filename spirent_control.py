@@ -89,23 +89,25 @@ for i, gen_handle in enumerate([gen1, gen2], start=1):
             try:
                 # Fetch core parameters
                 dur_mode = stc.get(g_cfg, "DurationMode")
-                load = stc.get(g_cfg, "Load")
+                load = stc.get(g_cfg, "FixedLoad")
                 load_unit = stc.get(g_cfg, "LoadUnit")
                 
                 # Duration doesn't apply the same way if mode is CONTINUOUS
                 dur_val = stc.get(g_cfg, "Duration") if dur_mode != "CONTINUOUS" else "N/A"
                 
-                print(f"Port {i} Generator: {dur_mode} | Load: {load} {load_unit} | Duration: {dur_val}")
+                # Isolate BurstSize (Frame Count) so it doesn't crash if unsupported
+                try:
+                    frame_count = stc.get(g_cfg, "BurstSize")
+                except Exception:
+                    frame_count = "N/A"
+                
+                # Updated Print Statement
+                print(f"Port {i} Generator: {dur_mode} | Load: {load} {load_unit} | Duration: {dur_val} | Frame Count: {frame_count}")
+                
                 config_rows.append([f"Port {i} Duration Mode", dur_mode])
                 config_rows.append([f"Port {i} Load", f"{load} {load_unit}"])
                 config_rows.append([f"Port {i} Duration", dur_val])
-                
-                # Isolate BurstSize so it doesn't crash the rest of the loop if it fails
-                try:
-                    burst_size = stc.get(g_cfg, "BurstSize")
-                    config_rows.append([f"Port {i} Burst Size", f"{burst_size} Frames"])
-                except Exception:
-                    pass # Safely ignore if BurstSize isn't applicable to this mode
+                config_rows.append([f"Port {i} Frame Count (Burst Size)", frame_count])
 
             except Exception as e:
                 print(f"Port {i} Generator Config Error: {e}")
