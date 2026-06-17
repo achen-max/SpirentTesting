@@ -8,7 +8,7 @@ CHASSIS_IP = "192.168.0.100" # IP address of Spirent machine
 PORT1_LOC = f"//{CHASSIS_IP}/1/1" # to/from ports that we are using
 PORT2_LOC = f"//{CHASSIS_IP}/1/2" 
 
-TCC_FILE = "tcc_configs/slipring_burst150k.tcc" # which Spirent test to set up (.tcc)
+TCC_FILE = "tcc_configs/slipring_continuous.tcc" # which Spirent test to set up (.tcc)
 CSV_METRICS = "slipring_metrics.csv" # record all metrics to
 CSV_FAILURES = "slipring_failures.csv" # record all failures (and three surrounding scenarios) to
 CSV_CONFIG = "slipring_config.csv" # traffic type
