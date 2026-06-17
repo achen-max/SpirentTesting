@@ -60,27 +60,56 @@ print("VERIFYING LOADED TRAFFIC PATTERNS FROM TCC FILE")
 print("==================================================")
 config_rows = []
 streamblocks = stc.get(port1_handle, "children-StreamBlock").split() + stc.get(port2_handle, "children-StreamBlock").split()
+
 for sb in streamblocks:
     if sb:
         sb_name = stc.get(sb, "Name")
         len_mode = stc.get(sb, "FrameLengthMode")
-        frame_size = stc.get(sb, "FixedFrameLength")
-        print(f"Stream Block: '{sb_name}' | Mode: {len_mode} | Size: {frame_size} Bytes")
-        config_rows.append([f"Stream '{sb_name}' Size", f"{frame_size} Bytes"])
+        
+        # Safely fetch frame size depending on the mode
+        try:
+            if len_mode == "FIXED":
+                frame_size = stc.get(sb, "FixedFrameLength")
+                size_str = f"{frame_size} Bytes"
+            else:
+                min_len = stc.get(sb, "MinFrameLength")
+                max_len = stc.get(sb, "MaxFrameLength")
+                size_str = f"{min_len}-{max_len} Bytes"
+        except Exception as e:
+            size_str = f"Unknown ({e})"
+            
+        print(f"Stream Block: '{sb_name}' | Mode: {len_mode} | Size: {size_str}")
+        config_rows.append([f"Stream '{sb_name}' Size", size_str])
 
 for i, gen_handle in enumerate([gen1, gen2], start=1):
     if gen_handle:
-        try:
-            gen_config = stc.get(gen_handle, "children-GeneratorConfig").split()
-            if gen_config:
-                dur_mode = stc.get(gen_config[0], "DurationMode")
-                dur_val = stc.get(gen_config[0], "Duration")
-                burst_size = stc.get(gen_config[0], "BurstSize")
-                print(f"Port {i} Generator: {dur_mode} | Bursts: {dur_val} | Size: {burst_size} Frames")
-                config_rows.append([f"Port {i} Burst Count", dur_val])
-                config_rows.append([f"Port {i} Burst Size", f"{burst_size} Frames"])
-        except Exception:
-            pass
+        gen_config_list = stc.get(gen_handle, "children-GeneratorConfig").split()
+        if gen_config_list:
+            g_cfg = gen_config_list[0]
+            try:
+                # Fetch core parameters
+                dur_mode = stc.get(g_cfg, "DurationMode")
+                load = stc.get(g_cfg, "Load")
+                load_unit = stc.get(g_cfg, "LoadUnit")
+                
+                # Duration doesn't apply the same way if mode is CONTINUOUS
+                dur_val = stc.get(g_cfg, "Duration") if dur_mode != "CONTINUOUS" else "N/A"
+                
+                print(f"Port {i} Generator: {dur_mode} | Load: {load} {load_unit} | Duration: {dur_val}")
+                config_rows.append([f"Port {i} Duration Mode", dur_mode])
+                config_rows.append([f"Port {i} Load", f"{load} {load_unit}"])
+                config_rows.append([f"Port {i} Duration", dur_val])
+                
+                # Isolate BurstSize so it doesn't crash the rest of the loop if it fails
+                try:
+                    burst_size = stc.get(g_cfg, "BurstSize")
+                    config_rows.append([f"Port {i} Burst Size", f"{burst_size} Frames"])
+                except Exception:
+                    pass # Safely ignore if BurstSize isn't applicable to this mode
+
+            except Exception as e:
+                print(f"Port {i} Generator Config Error: {e}")
+                config_rows.append([f"Port {i} Config Error", str(e)])
 
 with open(CSV_CONFIG, mode='w', newline='') as f_cfg:
     writer_cfg = csv.writer(f_cfg)
@@ -100,15 +129,12 @@ print("Traffic Started. Entering Test Loop...")
 if not os.path.exists(CSV_FAILURES):
     with open(CSV_FAILURES, mode='w', newline='') as f_fail:
         writer_fail = csv.writer(f_fail)
-        writer_fail.writerow(["Trigger_Iteration", "Log_Type", "Iteration", "Timestamp", "P1_Tx_Mbps", "P1_Rx_Mbps", "P1_Drops_Iter", "P1_FCS_Iter", "P1_MaxLat_us", "P1_Jitter_us", "P1_PRBS_Iter", "P2_Tx_Mbps", "P2_Rx_Mbps", "P2_Drops_Iter", "P2_FCS_Iter", "P2_MaxLat_us", "P2_Jitter_us", "P2_PRBS_Iter", "Reason"])
+        writer_fail.writerow(["Iteration", "Timestamp", "P1_Tx_Mbps", "P1_Rx_Mbps", "P1_Drops_Iter", "P1_FCS_Iter", "P1_MaxLat_us", "P1_Jitter_us", "P1_PRBS_Iter", "P2_Tx_Mbps", "P2_Rx_Mbps", "P2_Drops_Iter", "P2_FCS_Iter", "P2_MaxLat_us", "P2_Jitter_us", "P2_PRBS_Iter", "Reason"])
 
 iteration = 0
 prev_fcs1, prev_fcs2 = 0, 0
 prev_drops1, prev_drops2 = 0, 0
 prev_prbs1, prev_prbs2 = 0, 0
-
-history = []
-pending_failure_triggers = []
 
 with open(CSV_METRICS, mode='w', newline='') as f:
     writer = csv.writer(f)
@@ -185,15 +211,25 @@ with open(CSV_METRICS, mode='w', newline='') as f:
             elif p1_tx < THRESH_SPEED_BPS or p2_tx < THRESH_SPEED_BPS or p1_rx < THRESH_SPEED_BPS or p2_rx < THRESH_SPEED_BPS:
                 fail_reason = "SPEED DROP (BELOW THRESHOLD)"
 
+            timestamp = time.strftime('%H:%M:%S')
+
             if fail_reason:
                 status = f"FAIL ({fail_reason})" if VERBOSE else "FAIL"
-                if not pending_failure_triggers or (iteration - pending_failure_triggers[-1] > 4):
-                    pending_failure_triggers.append(iteration)
+                
+                # Write immediately to the failure CSV
+                with open(CSV_FAILURES, mode='a', newline='') as f_fail:
+                    writer_fail = csv.writer(f_fail)
+                    writer_fail.writerow([
+                        iteration, timestamp,
+                        p1_tx//1000000, p1_rx//1000000, p1_drops_iter, p1_fcs_iter, 
+                        p1_max_lat/1000 if p1_rx > 0 else "N/A", p1_jitter/1000 if p1_rx > 0 else "N/A", p1_prbs_iter,
+                        p2_tx//1000000, p2_rx//1000000, p2_drops_iter, p2_fcs_iter, 
+                        p2_max_lat/1000 if p2_rx > 0 else "N/A", p2_jitter/1000 if p2_rx > 0 else "N/A", p2_prbs_iter,
+                        fail_reason
+                    ])
             else:
                 status = "PASS"
-                                
-            timestamp = time.strftime('%H:%M:%S')
-            
+                
             p1_lat_str = f"{p1_max_lat/1000:.1f}us" if p1_rx > 0 else "N/A"
             p2_lat_str = f"{p2_max_lat/1000:.1f}us" if p2_rx > 0 else "N/A"
             
@@ -202,35 +238,8 @@ with open(CSV_METRICS, mode='w', newline='') as f:
             print(f"  ├─ P1: Tx {p1_tx//1000000:>3}M | Rx {p1_rx//1000000:>3}M | Drp: {p1_drops_iter:<2} | FCS: {p1_fcs_iter:<2} | Lat: {p1_lat_str:>7} | PRBS: {p1_prbs_iter}")
             print(f"  └─ P2: Tx {p2_tx//1000000:>3}M | Rx {p2_rx//1000000:>3}M | Drp: {p2_drops_iter:<2} | FCS: {p2_fcs_iter:<2} | Lat: {p2_lat_str:>7} | PRBS: {p2_prbs_iter}")
             print("") # Blank line for readability
-
-            history_row = {
-                "Iteration": iteration, "Timestamp": timestamp,
-                "P1_Tx_Mbps": p1_tx//1000000, "P1_Rx_Mbps": p1_rx//1000000, "P1_Drops_Iter": p1_drops_iter, "P1_FCS_Iter": p1_fcs_iter, "P1_MaxLat_us": p1_max_lat/1000 if p1_rx > 0 else "N/A", "P1_Jitter_us": p1_jitter/1000 if p1_rx > 0 else "N/A", "P1_PRBS_Iter": p1_prbs_iter,
-                "P2_Tx_Mbps": p2_tx//1000000, "P2_Rx_Mbps": p2_rx//1000000, "P2_Drops_Iter": p2_drops_iter, "P2_FCS_Iter": p2_fcs_iter, "P2_MaxLat_us": p2_max_lat/1000 if p2_rx > 0 else "N/A", "P2_Jitter_us": p2_jitter/1000 if p2_rx > 0 else "N/A", "P2_PRBS_Iter": p2_prbs_iter,
-                "Reason": fail_reason if fail_reason else "PASS"
-            }
-            history.append(history_row)
-            if len(history) > 100: history.pop(0)
             
-            completed_triggers = []
-            for trigger in pending_failure_triggers:
-                if iteration >= trigger + 3:
-                    with open(CSV_FAILURES, mode='a', newline='') as f_fail:
-                        writer_fail = csv.writer(f_fail)
-                        window = [r for r in history if (trigger - 3) <= r["Iteration"] <= (trigger + 3)]
-                        for r in window:
-                            log_type = "TRIGGER POINT" if r["Iteration"] == trigger else "CONTEXT"
-                            writer_fail.writerow([
-                                trigger, log_type, r["Iteration"], r["Timestamp"],
-                                r["P1_Tx_Mbps"], r["P1_Rx_Mbps"], r["P1_Drops_Iter"], r["P1_FCS_Iter"], r["P1_MaxLat_us"], r["P1_Jitter_us"], r["P1_PRBS_Iter"],
-                                r["P2_Tx_Mbps"], r["P2_Rx_Mbps"], r["P2_Drops_Iter"], r["P2_FCS_Iter"], r["P2_MaxLat_us"], r["P2_Jitter_us"], r["P2_PRBS_Iter"],
-                                r["Reason"]
-                            ])
-                    completed_triggers.append(trigger)
-            
-            for trigger in completed_triggers:
-                pending_failure_triggers.remove(trigger)
-            
+            # Write standard metrics every iteration
             writer.writerow([
                 iteration, timestamp, 
                 p1_tx, p1_rx, p1_drops_iter, p1_fcs_iter, p1_max_lat, p1_jitter, p1_prbs_iter,
