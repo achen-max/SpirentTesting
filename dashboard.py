@@ -58,7 +58,7 @@ while True:
         if os.path.exists("slipring_config.csv"):
             try:
                 df_cfg = pd.read_csv("slipring_config.csv")
-                config_placeholder.dataframe(df_cfg.set_index("Parameter"), use_container_width=True)
+                config_placeholder.dataframe(df_cfg.set_index("Parameter"), width="stretch")
             except Exception:
                 pass # Ignore if file is currently being locked/written by the test script
 
@@ -141,10 +141,10 @@ while True:
                 if 'Reason' in recent_fails.columns:
                     log_placeholder.dataframe(
                         recent_fails.style.map(lambda x: 'background-color: #ff4b4b; color: white' if pd.notna(x) else '', subset=['Reason']),
-                        use_container_width=True
+                        width="stretch"
                     )
                 else:
-                    log_placeholder.dataframe(recent_fails, use_container_width=True)
+                    log_placeholder.dataframe(recent_fails, width="stretch")
             else:
                 log_placeholder.info("All parameters nominal. Copper brush contact interface is completely stable! ✨")
                 
