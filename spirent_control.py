@@ -20,6 +20,7 @@ THRESH_MAX_LATENCY_NS = 5000000
 THRESH_JITTER_NS = 1000000        
 THRESH_PRBS_ERRORS = 0            
 THRESH_SPEED_BPS = 980000000      
+THRESH_DUPLICATE_FRAMES = 0       # Added threshold for Step 2 tracking
 
 VERBOSE = True 
 # ---------------------
@@ -114,6 +115,7 @@ iteration = 0
 prev_fcs1, prev_fcs2 = 0, 0
 prev_drops1, prev_drops2 = 0, 0
 prev_prbs1, prev_prbs2 = 0, 0
+prev_dup1, prev_dup2 = 0, 0 # Track previous duplicate states
 
 try:
     while True:
@@ -134,6 +136,11 @@ try:
         cumul_fcs1 = int(stc.get(rx1_res, 'FcsErrorFrameCount')) if rx1_res else 0
         p1_fcs_iter = cumul_fcs1 - prev_fcs1
         prev_fcs1 = cumul_fcs1
+
+        # Fetch Duplicate Frame Tracking
+        cumul_dup1 = int(stc.get(rx1_res, 'DuplicateFrameCount')) if rx1_res else 0
+        p1_dup_iter = cumul_dup1 - prev_dup1
+        prev_dup1 = cumul_dup1
         
         p1_max_lat = int(stc.get(rx1_res, 'MaxLatency')) if rx1_res else 0
         p1_min_lat = int(stc.get(rx1_res, 'MinLatency')) if rx1_res else 0
@@ -154,6 +161,11 @@ try:
         cumul_fcs2 = int(stc.get(rx2_res, 'FcsErrorFrameCount')) if rx2_res else 0
         p2_fcs_iter = cumul_fcs2 - prev_fcs2
         prev_fcs2 = cumul_fcs2
+
+        # Fetch Duplicate Frame Tracking
+        cumul_dup2 = int(stc.get(rx2_res, 'DuplicateFrameCount')) if rx2_res else 0
+        p2_dup_iter = cumul_dup2 - prev_dup2
+        prev_dup2 = cumul_dup2
         
         p2_max_lat = int(stc.get(rx2_res, 'MaxLatency')) if rx2_res else 0
         p2_min_lat = int(stc.get(rx2_res, 'MinLatency')) if rx2_res else 0
@@ -172,6 +184,8 @@ try:
             fail_reason = "FCS_ERRORS"
         elif p1_drops_iter > 0 or p2_drops_iter > 0:
             fail_reason = "OUT_OF_SEQUENCE"
+        elif p1_dup_iter > THRESH_DUPLICATE_FRAMES or p2_dup_iter > THRESH_DUPLICATE_FRAMES:
+            fail_reason = "DUPLICATE_FRAMES"
         elif p1_max_lat > THRESH_MAX_LATENCY_NS or p2_max_lat > THRESH_MAX_LATENCY_NS:
             fail_reason = "HIGH_LATENCY"
         elif p1_jitter > THRESH_JITTER_NS or p2_jitter > THRESH_JITTER_NS:
@@ -188,14 +202,15 @@ try:
 
         # --- TELEGRAF INFLUXDB LINE PROTOCOL OUTPUT ---
         # Format: measurement,tags fields (printing to standard out)
+        # Note: 'duplicate_frames' has been added into the comma-separated field group.
         
         # Port 1 Metrics
-        print(f'spirent_metrics,port=1 status="{status}" tx_bps={p1_tx},rx_bps={p1_rx},drops={p1_drops_iter},fcs={p1_fcs_iter},max_lat_ns={p1_max_lat},jitter_ns={p1_jitter},prbs={p1_prbs_iter},iteration={iteration}', flush=True)
-        
+        print(f'spirent_metrics,port=1,status={status} tx_bps={p1_tx},rx_bps={p1_rx},drops={p1_drops_iter},fcs={p1_fcs_iter},duplicate_frames={p1_dup_iter},max_lat_ns={p1_max_lat},jitter_ns={p1_jitter},prbs={p1_prbs_iter},iteration={iteration}', flush=True)
+
         # Port 2 Metrics
-        print(f'spirent_metrics,port=2 status="{status}" tx_bps={p2_tx},rx_bps={p2_rx},drops={p2_drops_iter},fcs={p2_fcs_iter},max_lat_ns={p2_max_lat},jitter_ns={p2_jitter},prbs={p2_prbs_iter},iteration={iteration}', flush=True)
-        
-        # Print a small visual heartbeat to STDERR for the local terminal
+        print(f'spirent_metrics,port=2,status={status} tx_bps={p2_tx},rx_bps={p2_rx},drops={p2_drops_iter},fcs={p2_fcs_iter},duplicate_frames={p2_dup_iter},max_lat_ns={p2_max_lat},jitter_ns={p2_jitter},prbs={p2_prbs_iter},iteration={iteration}', flush=True)
+                
+        # Heartbeat to STDERR for human visibility
         log(f"[Iter {iteration}] === {status.replace('_', ' ')} ===")
         
 except KeyboardInterrupt:
